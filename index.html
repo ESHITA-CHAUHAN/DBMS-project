@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI DB Schema Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">⬡</span>
+      <div>
+        <div class="logo-title">SchemaAI</div>
+        <div class="logo-sub">DBMS Project · Group 4</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-btn active" data-tab="generate" onclick="switchTab('generate', this)">
+        <span class="nav-icon">◈</span> Generate Schema
+      </button>
+      <button class="nav-btn" data-tab="normalize" onclick="switchTab('normalize', this)">
+        <span class="nav-icon">◉</span> Normalize Table
+      </button>
+      <button class="nav-btn" data-tab="validate" onclick="switchTab('validate', this)">
+        <span class="nav-icon">◎</span> Validate SQL
+      </button>
+      <button class="nav-btn" data-tab="history" onclick="switchTab('history', this)">
+        <span class="nav-icon">◷</span> History
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="api-key-box">
+        <label class="api-label">Anthropic API Key</label>
+        <input type="password" id="apiKey" class="api-input" placeholder="sk-ant-..." />
+        <div class="api-hint">
+          Get free key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+
+    <!-- ── TAB: GENERATE ── -->
+    <section class="tab-panel active" id="tab-generate">
+      <div class="panel-header">
+        <h1>Generate Schema</h1>
+        <p>Describe your application in plain English — AI will design the database</p>
+      </div>
+
+      <div class="quick-chips">
+        <span class="chip" onclick="fillPrompt('Hospital management system with patients, doctors, appointments, prescriptions and billing')">Hospital</span>
+        <span class="chip" onclick="fillPrompt('University system with students, courses, professors, enrollments and grades')">University</span>
+        <span class="chip" onclick="fillPrompt('E-commerce platform with users, products, orders, cart, payments and reviews')">E-commerce</span>
+        <span class="chip" onclick="fillPrompt('Library management with books, members, issued books, fines and catalog')">Library</span>
+        <span class="chip" onclick="fillPrompt('Banking system with accounts, customers, transactions, loans and branches')">Banking</span>
+      </div>
+
+      <div class="input-group">
+        <textarea id="generateInput" class="big-textarea" placeholder="Example: Design a food delivery app database with restaurants, menus, customers, orders, delivery partners and ratings..."></textarea>
+        <button class="run-btn" onclick="generateSchema()">
+          <span id="genBtnText">Generate Schema ↗</span>
+        </button>
+      </div>
+
+      <div class="output-box" id="generateOutput" style="display:none">
+        <div class="output-header">
+          <span class="output-title">Generated Schema</span>
+          <div class="output-actions">
+            <button class="action-btn" onclick="copyOutput('generateOutput')">Copy SQL</button>
+            <button class="action-btn" onclick="downloadSQL()">Download .sql</button>
+            <button class="action-btn" onclick="saveToHistory()">Save</button>
+          </div>
+        </div>
+        <div class="output-content" id="generateResult"></div>
+        <div class="nf-status" id="nfStatus"></div>
+      </div>
+    </section>
+
+    <!-- ── TAB: NORMALIZE ── -->
+    <section class="tab-panel" id="tab-normalize">
+      <div class="panel-header">
+        <h1>Normalize Table</h1>
+        <p>Paste an unnormalized table — AI will convert it step by step to 3NF</p>
+      </div>
+
+      <div class="input-group">
+        <textarea id="normalizeInput" class="big-textarea" placeholder="Paste your unnormalized table here. Example:&#10;&#10;StudentCourse(StudentID, StudentName, StudentCity, CourseID, CourseName, InstructorID, InstructorName, Grade)&#10;&#10;OR paste existing SQL CREATE TABLE..."></textarea>
+        <button class="run-btn" onclick="normalizeSchema()">
+          <span id="normBtnText">Normalize to 3NF ↗</span>
+        </button>
+      </div>
+
+      <div class="output-box" id="normalizeOutput" style="display:none">
+        <div class="output-header">
+          <span class="output-title">Normalization Steps</span>
+          <div class="output-actions">
+            <button class="action-btn" onclick="copyOutput('normalizeOutput')">Copy</button>
+          </div>
+        </div>
+        <div class="output-content" id="normalizeResult"></div>
+      </div>
+    </section>
+
+    <!-- ── TAB: VALIDATE ── -->
+    <section class="tab-panel" id="tab-validate">
+      <div class="panel-header">
+        <h1>Validate SQL</h1>
+        <p>Paste any SQL — AI checks for errors, missing constraints, and anti-patterns</p>
+      </div>
+
+      <div class="input-group">
+        <textarea id="validateInput" class="big-textarea" style="font-family: 'JetBrains Mono', monospace; font-size:13px;" placeholder="Paste your SQL here...&#10;&#10;CREATE TABLE orders (&#10;  id INT,&#10;  user INT,&#10;  amount DECIMAL&#10;);"></textarea>
+        <button class="run-btn" onclick="validateSQL()">
+          <span id="valBtnText">Validate SQL ↗</span>
+        </button>
+      </div>
+
+      <div class="output-box" id="validateOutput" style="display:none">
+        <div class="output-header">
+          <span class="output-title">Validation Report</span>
+          <div class="output-actions">
+            <button class="action-btn" onclick="copyOutput('validateOutput')">Copy</button>
+          </div>
+        </div>
+        <div class="output-content" id="validateResult"></div>
+      </div>
+    </section>
+
+    <!-- ── TAB: HISTORY ── -->
+    <section class="tab-panel" id="tab-history">
+      <div class="panel-header">
+        <h1>Saved Schemas</h1>
+        <p>Your generated schemas stored locally (meta schema table)</p>
+      </div>
+
+      <div id="historyList" class="history-list"></div>
+
+      <div class="history-meta-box">
+        <div class="output-header">
+          <span class="output-title">schema_meta table (stored in browser)</span>
+          <button class="action-btn" onclick="clearHistory()">Clear All</button>
+        </div>
+        <div class="output-content">
+          <pre id="metaTableView" style="font-size:12px; color:#a0c4ff;">Loading...</pre>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- RIGHT PANEL: Schema Inspector -->
+  <aside class="inspector" id="inspector">
+    <div class="inspector-header">Schema Inspector</div>
+    <div class="inspector-body" id="inspectorBody">
+      <div class="inspector-empty">
+        Generate a schema to see table breakdown here
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
