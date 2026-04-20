@@ -1,179 +1,290 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI DB Schema Assistant</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AI-assisted DB schema-design assistant for DBMS coursework.">
+  <title>SchemaAI DBMS Studio</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-<div class="layout">
-
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="logo">
-      <span class="logo-icon">⬡</span>
-      <div>
-        <div class="logo-title">SchemaAI</div>
-        <div class="logo-sub">DBMS Project · Group 4</div>
-      </div>
-    </div>
-
-    <nav class="nav">
-      <button class="nav-btn active" data-tab="generate" onclick="switchTab('generate', this)">
-        <span class="nav-icon">◈</span> Generate Schema
-      </button>
-      <button class="nav-btn" data-tab="normalize" onclick="switchTab('normalize', this)">
-        <span class="nav-icon">◉</span> Normalize Table
-      </button>
-      <button class="nav-btn" data-tab="validate" onclick="switchTab('validate', this)">
-        <span class="nav-icon">◎</span> Validate SQL
-      </button>
-      <button class="nav-btn" data-tab="history" onclick="switchTab('history', this)">
-        <span class="nav-icon">◷</span> History
-      </button>
-    </nav>
-
-    <div class="sidebar-footer">
-      <div class="api-key-box">
-        <label class="api-label">Anthropic API Key</label>
-        <input type="password" id="apiKey" class="api-input" placeholder="sk-ant-..." />
-        <div class="api-hint">
-          Get free key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Project navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">DB</div>
+        <div>
+          <div class="brand-title">SchemaAI</div>
+          <div class="brand-subtitle">DBMS Design Studio</div>
         </div>
       </div>
-    </div>
-  </aside>
 
-  <!-- MAIN CONTENT -->
-  <main class="main">
-
-    <!-- ── TAB: GENERATE ── -->
-    <section class="tab-panel active" id="tab-generate">
-      <div class="panel-header">
-        <h1>Generate Schema</h1>
-        <p>Describe your application in plain English — AI will design the database</p>
-      </div>
-
-      <div class="quick-chips">
-        <span class="chip" onclick="fillPrompt('Hospital management system with patients, doctors, appointments, prescriptions and billing')">Hospital</span>
-        <span class="chip" onclick="fillPrompt('University system with students, courses, professors, enrollments and grades')">University</span>
-        <span class="chip" onclick="fillPrompt('E-commerce platform with users, products, orders, cart, payments and reviews')">E-commerce</span>
-        <span class="chip" onclick="fillPrompt('Library management with books, members, issued books, fines and catalog')">Library</span>
-        <span class="chip" onclick="fillPrompt('Banking system with accounts, customers, transactions, loans and branches')">Banking</span>
-      </div>
-
-      <div class="input-group">
-        <textarea id="generateInput" class="big-textarea" placeholder="Example: Design a food delivery app database with restaurants, menus, customers, orders, delivery partners and ratings..."></textarea>
-        <button class="run-btn" onclick="generateSchema()">
-          <span id="genBtnText">Generate Schema ↗</span>
+      <nav class="nav-list" aria-label="Primary">
+        <button class="nav-button active" type="button" data-view="design">
+          <span class="nav-symbol" aria-hidden="true">+</span>
+          Design
         </button>
+        <button class="nav-button" type="button" data-view="workbench">
+          <span class="nav-symbol" aria-hidden="true">SQL</span>
+          Workbench
+        </button>
+        <button class="nav-button" type="button" data-view="normalize">
+          <span class="nav-symbol" aria-hidden="true">3N</span>
+          Normalize
+        </button>
+        <button class="nav-button" type="button" data-view="meta">
+          <span class="nav-symbol" aria-hidden="true">M</span>
+          Meta Schema
+        </button>
+        <button class="nav-button" type="button" data-view="history">
+          <span class="nav-symbol" aria-hidden="true">H</span>
+          History
+        </button>
+      </nav>
+
+      <div class="provider-panel">
+        <label for="providerSelect">AI Provider</label>
+        <select id="providerSelect">
+          <option value="demo">Offline demo engine</option>
+          <option value="anthropic">Anthropic Messages API</option>
+          <option value="openai">OpenAI chat API</option>
+          <option value="gemini">Google Gemini API</option>
+        </select>
+
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" autocomplete="off" placeholder="Stored locally only">
+
+        <label for="modelName">Model</label>
+        <input id="modelName" type="text" autocomplete="off" placeholder="Use provider default">
+
+        <label class="check-row">
+          <input id="useLocalReview" type="checkbox" checked>
+          <span>Run local SQL review</span>
+        </label>
       </div>
 
-      <div class="output-box" id="generateOutput" style="display:none">
-        <div class="output-header">
-          <span class="output-title">Generated Schema</span>
-          <div class="output-actions">
-            <button class="action-btn" onclick="copyOutput('generateOutput')">Copy SQL</button>
-            <button class="action-btn" onclick="downloadSQL()">Download .sql</button>
-            <button class="action-btn" onclick="saveToHistory()">Save</button>
+      <div class="sidebar-note">
+        <strong>Live-ready:</strong> static files, browser storage, and GitHub Pages workflow.
+      </div>
+    </aside>
+
+    <main class="main">
+      <section id="view-design" class="view active" aria-labelledby="designTitle">
+        <div class="view-header">
+          <div>
+            <p class="eyebrow">AI-assisted schema design</p>
+            <h1 id="designTitle">Design Studio</h1>
+          </div>
+          <div class="header-actions">
+            <button class="ghost-button" type="button" id="exportSqlButton">
+              <span aria-hidden="true">DL</span>
+              SQL
+            </button>
+            <button class="primary-button" type="button" id="generateButton">
+              <span aria-hidden="true">AI</span>
+              Generate
+            </button>
           </div>
         </div>
-        <div class="output-content" id="generateResult"></div>
-        <div class="nf-status" id="nfStatus"></div>
-      </div>
-    </section>
 
-    <!-- ── TAB: NORMALIZE ── -->
-    <section class="tab-panel" id="tab-normalize">
-      <div class="panel-header">
-        <h1>Normalize Table</h1>
-        <p>Paste an unnormalized table — AI will convert it step by step to 3NF</p>
-      </div>
+        <div class="prompt-strip" aria-label="Example domains">
+          <button type="button" data-prompt="Hospital management system with patients, doctors, departments, appointments, prescriptions, medicines, billing, and insurance claims">Hospital</button>
+          <button type="button" data-prompt="University course registration system with students, departments, instructors, courses, sections, enrollments, grades, and prerequisites">University</button>
+          <button type="button" data-prompt="E-commerce marketplace with customers, sellers, categories, products, inventory, carts, orders, payments, shipments, and reviews">E-commerce</button>
+          <button type="button" data-prompt="Library management system with members, librarians, books, authors, copies, issue records, reservations, and fines">Library</button>
+          <button type="button" data-prompt="Banking system with branches, customers, accounts, transactions, loans, repayments, cards, and fraud flags">Banking</button>
+          <button type="button" data-prompt="Food delivery platform with customers, restaurants, menu items, orders, delivery partners, payments, coupons, and ratings">Food delivery</button>
+        </div>
 
-      <div class="input-group">
-        <textarea id="normalizeInput" class="big-textarea" placeholder="Paste your unnormalized table here. Example:&#10;&#10;StudentCourse(StudentID, StudentName, StudentCity, CourseID, CourseName, InstructorID, InstructorName, Grade)&#10;&#10;OR paste existing SQL CREATE TABLE..."></textarea>
-        <button class="run-btn" onclick="normalizeSchema()">
-          <span id="normBtnText">Normalize to 3NF ↗</span>
-        </button>
-      </div>
+        <div class="studio-grid">
+          <div class="input-zone">
+            <label for="projectDescription">Project Description</label>
+            <textarea id="projectDescription" spellcheck="true" placeholder="Describe the application, users, data rules, reports, and constraints."></textarea>
+            <div class="field-row">
+              <label for="sqlDialect">SQL Dialect</label>
+              <select id="sqlDialect">
+                <option value="mysql">MySQL 8 / InnoDB</option>
+                <option value="postgres">PostgreSQL style</option>
+              </select>
+              <label for="targetNF">Target NF</label>
+              <select id="targetNF">
+                <option value="3NF">3NF</option>
+                <option value="BCNF">BCNF</option>
+              </select>
+            </div>
+          </div>
 
-      <div class="output-box" id="normalizeOutput" style="display:none">
-        <div class="output-header">
-          <span class="output-title">Normalization Steps</span>
-          <div class="output-actions">
-            <button class="action-btn" onclick="copyOutput('normalizeOutput')">Copy</button>
+          <div class="pipeline-panel" aria-live="polite">
+            <div class="pipeline-step complete">
+              <span>1</span>
+              <div>
+                <strong>Concept model</strong>
+                <small>Entities, attributes, relationships</small>
+              </div>
+            </div>
+            <div class="pipeline-step complete">
+              <span>2</span>
+              <div>
+                <strong>Normalized SQL</strong>
+                <small>Keys, foreign keys, constraints</small>
+              </div>
+            </div>
+            <div class="pipeline-step complete">
+              <span>3</span>
+              <div>
+                <strong>Validation layer</strong>
+                <small>Local analyzer plus optional LLM critique</small>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="output-content" id="normalizeResult"></div>
-      </div>
-    </section>
 
-    <!-- ── TAB: VALIDATE ── -->
-    <section class="tab-panel" id="tab-validate">
-      <div class="panel-header">
-        <h1>Validate SQL</h1>
-        <p>Paste any SQL — AI checks for errors, missing constraints, and anti-patterns</p>
-      </div>
+        <div class="result-layout">
+          <section class="output-panel" aria-labelledby="generatedSqlTitle">
+            <div class="panel-title-row">
+              <h2 id="generatedSqlTitle">Generated SQL</h2>
+              <button class="ghost-button compact" type="button" id="copyGeneratedButton">Copy</button>
+            </div>
+            <pre id="generatedSql" class="code-output">No schema generated yet.</pre>
+          </section>
 
-      <div class="input-group">
-        <textarea id="validateInput" class="big-textarea" style="font-family: 'JetBrains Mono', monospace; font-size:13px;" placeholder="Paste your SQL here...&#10;&#10;CREATE TABLE orders (&#10;  id INT,&#10;  user INT,&#10;  amount DECIMAL&#10;);"></textarea>
-        <button class="run-btn" onclick="validateSQL()">
-          <span id="valBtnText">Validate SQL ↗</span>
-        </button>
-      </div>
+          <section class="output-panel" aria-labelledby="designReportTitle">
+            <div class="panel-title-row">
+              <h2 id="designReportTitle">Design Report</h2>
+              <button class="ghost-button compact" type="button" id="saveDesignButton">Save</button>
+            </div>
+            <div id="designReport" class="report-output empty-state">Generation results and validation findings will appear here.</div>
+          </section>
+        </div>
+      </section>
 
-      <div class="output-box" id="validateOutput" style="display:none">
-        <div class="output-header">
-          <span class="output-title">Validation Report</span>
-          <div class="output-actions">
-            <button class="action-btn" onclick="copyOutput('validateOutput')">Copy</button>
+      <section id="view-workbench" class="view" aria-labelledby="workbenchTitle">
+        <div class="view-header">
+          <div>
+            <p class="eyebrow">Student refinement layer</p>
+            <h1 id="workbenchTitle">SQL Workbench</h1>
+          </div>
+          <div class="header-actions">
+            <button class="ghost-button" type="button" id="loadGeneratedButton">
+              <span aria-hidden="true">IN</span>
+              Load
+            </button>
+            <button class="primary-button" type="button" id="validateSqlButton">
+              <span aria-hidden="true">OK</span>
+              Validate
+            </button>
           </div>
         </div>
-        <div class="output-content" id="validateResult"></div>
-      </div>
-    </section>
 
-    <!-- ── TAB: HISTORY ── -->
-    <section class="tab-panel" id="tab-history">
-      <div class="panel-header">
-        <h1>Saved Schemas</h1>
-        <p>Your generated schemas stored locally (meta schema table)</p>
-      </div>
+        <div class="workbench-grid">
+          <div class="editor-wrap">
+            <label for="sqlEditor">Editable SQL</label>
+            <textarea id="sqlEditor" spellcheck="false" placeholder="Paste or load CREATE TABLE statements."></textarea>
+            <div class="editor-actions">
+              <button class="ghost-button compact" type="button" id="formatSqlButton">Format</button>
+              <button class="ghost-button compact" type="button" id="saveRevisionButton">Save revision</button>
+              <button class="ghost-button compact" type="button" id="downloadWorkbenchButton">Download</button>
+            </div>
+          </div>
 
-      <div id="historyList" class="history-list"></div>
-
-      <div class="history-meta-box">
-        <div class="output-header">
-          <span class="output-title">schema_meta table (stored in browser)</span>
-          <button class="action-btn" onclick="clearHistory()">Clear All</button>
+          <section class="output-panel" aria-labelledby="validationTitle">
+            <div class="panel-title-row">
+              <h2 id="validationTitle">Validation Report</h2>
+              <span id="validationScore" class="score-pill">0</span>
+            </div>
+            <div id="validationReport" class="report-output empty-state">Run validation to inspect keys, references, types, and normal form risks.</div>
+          </section>
         </div>
-        <div class="output-content">
-          <pre id="metaTableView" style="font-size:12px; color:#a0c4ff;">Loading...</pre>
+      </section>
+
+      <section id="view-normalize" class="view" aria-labelledby="normalizeTitle">
+        <div class="view-header">
+          <div>
+            <p class="eyebrow">Normalization reasoning</p>
+            <h1 id="normalizeTitle">Normalization Lab</h1>
+          </div>
+          <button class="primary-button" type="button" id="normalizeButton">
+            <span aria-hidden="true">3N</span>
+            Analyze
+          </button>
         </div>
+
+        <div class="normal-grid">
+          <div class="input-zone">
+            <label for="relationInput">Unnormalized Relation</label>
+            <textarea id="relationInput" spellcheck="false">Enrollment(StudentID, StudentName, StudentEmail, CourseID, CourseName, InstructorID, InstructorName, Grade, Semester)</textarea>
+            <label for="fdInput">Functional Dependencies</label>
+            <textarea id="fdInput" spellcheck="false">StudentID -> StudentName, StudentEmail
+CourseID -> CourseName, InstructorID
+InstructorID -> InstructorName
+StudentID, CourseID, Semester -> Grade</textarea>
+          </div>
+          <section class="output-panel" aria-labelledby="normalReportTitle">
+            <div class="panel-title-row">
+              <h2 id="normalReportTitle">3NF Decomposition</h2>
+              <button class="ghost-button compact" type="button" id="copyNormalButton">Copy</button>
+            </div>
+            <div id="normalReport" class="report-output empty-state">Analyze a relation to generate normalization steps.</div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-meta" class="view" aria-labelledby="metaTitle">
+        <div class="view-header">
+          <div>
+            <p class="eyebrow">Core SQL layer</p>
+            <h1 id="metaTitle">Project Meta Schema</h1>
+          </div>
+          <button class="ghost-button" type="button" id="copyMetaButton">
+            <span aria-hidden="true">CP</span>
+            Copy
+          </button>
+        </div>
+
+        <div class="meta-layout">
+          <section class="output-panel" aria-labelledby="metaSchemaTitle">
+            <div class="panel-title-row">
+              <h2 id="metaSchemaTitle">DDL</h2>
+              <span class="score-pill">10 tables</span>
+            </div>
+            <pre id="metaSchemaOutput" class="code-output"></pre>
+          </section>
+          <section class="output-panel" aria-labelledby="metaRowsTitle">
+            <div class="panel-title-row">
+              <h2 id="metaRowsTitle">Browser Rows</h2>
+              <button class="ghost-button compact" type="button" id="exportHistoryButton">JSON</button>
+            </div>
+            <div id="metaRowsOutput" class="report-output"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-history" class="view" aria-labelledby="historyTitle">
+        <div class="view-header">
+          <div>
+            <p class="eyebrow">Stored locally as schema_meta rows</p>
+            <h1 id="historyTitle">History</h1>
+          </div>
+          <button class="danger-button" type="button" id="clearHistoryButton">
+            <span aria-hidden="true">X</span>
+            Clear
+          </button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+    </main>
+
+    <aside class="inspector" aria-label="Schema inspector">
+      <div class="inspector-header">
+        <span>Inspector</span>
+        <span id="inspectorStatus">Idle</span>
       </div>
-    </section>
-
-  </main>
-
-  <!-- RIGHT PANEL: Schema Inspector -->
-  <aside class="inspector" id="inspector">
-    <div class="inspector-header">Schema Inspector</div>
-    <div class="inspector-body" id="inspectorBody">
-      <div class="inspector-empty">
-        Generate a schema to see table breakdown here
+      <div id="inspectorBody" class="inspector-body">
+        <div class="empty-state">Generate or validate SQL to inspect the schema graph.</div>
       </div>
-    </div>
-  </aside>
+    </aside>
+  </div>
 
-</div>
-
-<!-- TOAST -->
-<div class="toast" id="toast"></div>
-
-<script src="app.js"></script>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
 </body>
 </html>
