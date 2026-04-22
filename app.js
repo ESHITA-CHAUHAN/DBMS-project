@@ -7,7 +7,7 @@ const PROVIDER_DEFAULTS = {
   demo: "local-rules-v1",
   anthropic: "claude-sonnet-4-20250514",
   openai: "gpt-4o-mini",
-  gemini: "gemini-1.5-flash"
+  gemini: "gemini-2.5-flash"
 };
 
 const RESERVED_WORDS = new Set([
@@ -184,6 +184,9 @@ function loadState() {
     dialect: "mysql",
     targetNF: "3NF"
   });
+  if (state.settings.provider === "gemini" && state.settings.modelName === "gemini-1.5-flash") {
+    state.settings.modelName = PROVIDER_DEFAULTS.gemini;
+  }
   state.history = readJson(STORAGE_KEYS.history, []);
 }
 
@@ -284,26 +287,53 @@ async function handleGenerate() {
   try {
     let generated;
     const started = performance.now();
+    let report;
 
     if (settings.provider === "demo") {
       generated = buildLocalDesign(description, settings.dialect, settings.targetNF);
     } else {
-      const aiText = await callProvider(settings.provider, settings.apiKey, settings.modelName, buildSystemPrompt(settings), description);
-      const sql = extractSql(aiText);
+      const providerResult = await callProvider(
+        settings.provider,
+        settings.apiKey,
+        settings.modelName,
+        buildSystemPrompt(settings),
+        buildSchemaRequest(settings, description)
+      );
+      const sql = extractSql(providerResult?.sql || providerResult?.rawText || "");
+      if (!sql) {
+        throw new Error("The model did not return executable CREATE TABLE SQL. Try again or switch to the offline demo engine.");
+      }
       generated = {
         provider: settings.provider,
         model: settings.modelName,
-        sql: sql || aiText,
-        notes: aiText,
+        sql,
+        notes: providerResult?.notes || "",
         latencyMs: Math.round(performance.now() - started)
       };
     }
 
-    const report = settings.useLocalReview ? analyzeSql(generated.sql) : null;
+    report = settings.useLocalReview ? analyzeSql(generated.sql) : null;
+    if (settings.provider !== "demo" && settings.useLocalReview && shouldRescueGeneration(report)) {
+      const rescued = buildLocalDesign(description, settings.dialect, settings.targetNF);
+      const rescuedReport = analyzeSql(rescued.sql);
+      generated = {
+        provider: `${settings.provider} + local rescue`,
+        model: settings.modelName,
+        sql: rescued.sql,
+        notes: buildRescueNotes(description, settings.provider, report, rescuedReport, settings),
+        latencyMs: Math.round(performance.now() - started)
+      };
+      report = rescuedReport;
+    }
+
     state.currentSql = generated.sql;
     state.currentDescription = description;
     state.currentProvider = generated.provider;
     state.currentReport = report;
+
+    if (!generated.notes) {
+      generated.notes = buildGeneratedNotes(description, generated, report, settings);
+    }
 
     $("generatedSql").textContent = generated.sql;
     $("sqlEditor").value = generated.sql;
@@ -325,11 +355,31 @@ async function handleGenerate() {
 function buildSystemPrompt(settings) {
   return `You are a senior database architect helping DBMS students.
 Return a practical ${settings.dialect} schema normalized to ${settings.targetNF}.
-Use this exact response structure:
-1. A concise concept model with entities and relationships.
-2. A fenced SQL block marked sql containing only executable DDL.
-3. A validation note list explaining primary keys, foreign keys, indexes, and normal form evidence.
-Add a meta-schema mindset: descriptions, versions, validation runs, and revision events must be trackable.`;
+Return executable SQL DDL only.
+Do not include explanations, headings, bullet points, markdown narration, or sample inserts.
+Start directly with CREATE TABLE statements.
+Include primary keys, foreign keys, unique constraints, NOT NULL constraints, and indexes on foreign key columns.
+Use bridge tables for many-to-many relationships and keep the design cleanly normalized.`;
+}
+
+function buildSchemaRequest(settings, description) {
+  const dialectLabel = settings.dialect === "postgres" ? "PostgreSQL" : "MySQL 8 / InnoDB";
+  return `Project description:
+${description}
+
+Requirements:
+- Use ${dialectLabel} syntax.
+- Normalize the schema to ${settings.targetNF}.
+- Create a separate table for each major entity mentioned in the project description.
+- Return executable DDL only.
+- Start directly with CREATE TABLE.
+- Do not return a concept model.
+- Do not use headings or bullet points.
+- Add CREATE INDEX statements after the tables.
+- Add primary keys, foreign keys, unique constraints, NOT NULL constraints, and indexes on all foreign key columns.
+- Use separate tables instead of repeating groups.
+- Avoid duplicate descriptive columns on transactional tables.
+- Do not include INSERT, SELECT, or explanation text.`;
 }
 
 async function callProvider(provider, key, model, systemPrompt, userPrompt) {
@@ -353,7 +403,8 @@ async function callProvider(provider, key, model, systemPrompt, userPrompt) {
       })
     });
     const data = await parseProviderResponse(response);
-    return (data.content || []).map((part) => part.text || "").join("");
+    const text = (data.content || []).map((part) => part.text || "").join("");
+    return { rawText: text, sql: extractSql(text) };
   }
 
   if (provider === "openai") {
@@ -373,24 +424,119 @@ async function callProvider(provider, key, model, systemPrompt, userPrompt) {
       })
     });
     const data = await parseProviderResponse(response);
-    return data.choices?.[0]?.message?.content || "";
+    const text = data.choices?.[0]?.message?.content || "";
+    return { rawText: text, sql: extractSql(text) };
   }
 
   if (provider === "gemini") {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `${systemPrompt}\n\nProject:\n${userPrompt}` }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 3000 }
-      })
-    });
-    const data = await parseProviderResponse(response);
-    return data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
+    return callGeminiProvider(key, model, systemPrompt, userPrompt);
   }
 
   throw new Error("Unsupported provider.");
+}
+
+async function callGeminiProvider(key, model, systemPrompt, userPrompt) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const headers = {
+    "Content-Type": "application/json",
+    "x-goog-api-key": key
+  };
+
+  const structuredData = await fetchProviderJsonWithRetry(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      system_instruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      contents: [{
+        role: "user",
+        parts: [{ text: userPrompt }]
+      }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 4096,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "object",
+          properties: {
+            sql: {
+              type: "string",
+              description: "Executable SQL DDL only. Start directly with CREATE TABLE."
+            },
+            summary: {
+              type: "string",
+              description: "One or two sentence summary of the schema."
+            },
+            assumptions: {
+              type: "array",
+              items: { type: "string" },
+              description: "Short implementation assumptions."
+            }
+          },
+          required: ["sql"]
+        }
+      }
+    })
+  });
+  const structuredText = extractGeminiText(structuredData);
+  const structuredJson = safeJsonParse(structuredText);
+  const structuredSql = extractSql(structuredJson?.sql || structuredText);
+  if (structuredSql) {
+    return {
+      rawText: structuredText,
+      sql: structuredSql,
+      notes: buildGeminiNotes(structuredJson?.summary, structuredJson?.assumptions)
+    };
+  }
+
+  const retryData = await fetchProviderJsonWithRetry(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      system_instruction: {
+        parts: [{ text: `${systemPrompt}\nIf you fail to follow the format, respond with SQL only.` }]
+      },
+      contents: [{
+        role: "user",
+        parts: [{
+          text: `${userPrompt}\n\nReturn executable SQL only. Start directly with CREATE TABLE.`
+        }]
+      }],
+      generationConfig: {
+        temperature: 0.05,
+        maxOutputTokens: 4096,
+        responseMimeType: "text/plain"
+      }
+    })
+  });
+  const retryText = extractGeminiText(retryData);
+  return {
+    rawText: retryText,
+    sql: extractSql(retryText)
+  };
+}
+
+function extractGeminiText(data) {
+  return data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("") || "";
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function buildGeminiNotes(summary, assumptions) {
+  const items = Array.isArray(assumptions) ? assumptions.filter(Boolean) : [];
+  if (!summary && !items.length) return "";
+  return [
+    `<h3>Generation Summary</h3>`,
+    summary ? `<p>${escapeHtml(summary)}</p>` : "",
+    items.length ? `<h3>Assumptions</h3><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""
+  ].join("");
 }
 
 async function parseProviderResponse(response) {
@@ -406,6 +552,26 @@ async function parseProviderResponse(response) {
     throw new Error(String(message));
   }
   return data;
+}
+
+async function fetchProviderJsonWithRetry(url, options, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      return await parseProviderResponse(response);
+    } catch (error) {
+      lastError = error;
+      const retryable = /high demand|429|503|unavailable|try again later/i.test(String(error.message || error));
+      if (!retryable || attempt === attempts) break;
+      await delay(attempt * 1200);
+    }
+  }
+  throw lastError;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildLocalDesign(description, dialect, targetNF) {
@@ -1206,11 +1372,33 @@ function genericTemplate(description) {
 }
 
 function extractSql(text) {
+  if (!text) return "";
+  const parsed = typeof text === "string" ? safeJsonParse(text.trim()) : null;
+  if (parsed && typeof parsed.sql === "string") {
+    return extractSql(parsed.sql);
+  }
+  text = String(text);
   const fenced = text.match(/```sql\s*([\s\S]*?)```/i);
-  if (fenced) return fenced[1].trim();
+  if (fenced) return normalizeGeneratedSql(fenced[1].trim());
+  const genericFence = text.match(/```[\w-]*\s*([\s\S]*?)```/i);
+  if (genericFence) return extractSql(genericFence[1].trim());
   const createStart = text.search(/CREATE\s+TABLE/i);
-  if (createStart >= 0) return text.slice(createStart).trim();
+  if (createStart >= 0) return normalizeGeneratedSql(text.slice(createStart).trim());
   return "";
+}
+
+function normalizeGeneratedSql(sql) {
+  sql = String(sql || "").trim();
+  if (sql.includes("\\n") && !sql.includes("\n")) {
+    sql = sql
+      .replace(/\\r\\n/g, "\n")
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, "\t");
+  }
+  if (sql.includes('\\"')) {
+    sql = sql.replace(/\\"/g, '"');
+  }
+  return sql.trim();
 }
 
 function analyzeSql(sql) {
@@ -1295,7 +1483,7 @@ function analyzeSql(sql) {
 
   const errorCount = findings.filter((item) => item.severity === "error").length;
   const warningCount = findings.filter((item) => item.severity === "warning").length;
-  const score = Math.max(0, 100 - errorCount * 22 - warningCount * 6);
+  const score = parsed.tables.length ? Math.max(0, 100 - errorCount * 22 - warningCount * 6) : 0;
   const status = errorCount ? "fail" : warningCount ? "warning" : "pass";
 
   return {
@@ -1324,12 +1512,10 @@ function parseSql(sql) {
     .replace(/--.*$/gm, "");
   const tables = [];
   const relationships = [];
-  const createRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?([A-Za-z_][\w]*)[`"]?\s*\(([\s\S]*?)\)\s*(?:ENGINE\s*=\s*\w+)?\s*;/gi;
-  let match;
 
-  while ((match = createRe.exec(withoutComments)) !== null) {
+  findCreateTableBlocks(withoutComments).forEach((block) => {
     const table = {
-      name: cleanIdentifier(match[1]),
+      name: block.name,
       columns: [],
       columnMap: new Map(),
       primaryKey: [],
@@ -1338,7 +1524,7 @@ function parseSql(sql) {
       uniques: []
     };
 
-    splitTopLevel(match[2]).forEach((rawPart) => {
+    splitTopLevel(block.body).forEach((rawPart) => {
       const part = rawPart.trim().replace(/,$/, "");
       if (!part) return;
       parseTablePart(part, table, relationships);
@@ -1346,11 +1532,12 @@ function parseSql(sql) {
 
     table.columns.forEach((column) => table.columnMap.set(column.name.toLowerCase(), column));
     tables.push(table);
-  }
+  });
 
-  const indexRe = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+[`"]?([A-Za-z_][\w]*)[`"]?\s+ON\s+[`"]?([A-Za-z_][\w]*)[`"]?\s*\(([^)]+)\)\s*;/gi;
+  let match;
+  const indexRe = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+[`"]?([A-Za-z_][\w]*)[`"]?\s+ON\s+((?:[`"]?[A-Za-z_][\w]*[`"]?\.)?[`"]?[A-Za-z_][\w]*[`"]?)\s*\(([^)]+)\)\s*;/gi;
   while ((match = indexRe.exec(withoutComments)) !== null) {
-    const tableName = cleanIdentifier(match[2]);
+    const tableName = parseQualifiedName(match[2]);
     const table = tables.find((item) => item.name.toLowerCase() === tableName.toLowerCase());
     if (table) {
       table.indexes.push({
@@ -1362,6 +1549,44 @@ function parseSql(sql) {
 
   const tableMap = new Map(tables.map((table) => [table.name.toLowerCase(), table]));
   return { tables, relationships, tableMap };
+}
+
+function findCreateTableBlocks(sql) {
+  const blocks = [];
+  const startRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?((?:[`"]?[A-Za-z_][\w]*[`"]?\.)?[`"]?[A-Za-z_][\w]*[`"]?)\s*\(/gi;
+  let match;
+  while ((match = startRe.exec(sql)) !== null) {
+    const openIndex = startRe.lastIndex - 1;
+    const closeIndex = findMatchingParen(sql, openIndex);
+    if (closeIndex < 0) continue;
+    blocks.push({
+      name: parseQualifiedName(match[1]),
+      body: sql.slice(openIndex + 1, closeIndex)
+    });
+    const statementEnd = sql.indexOf(";", closeIndex);
+    startRe.lastIndex = statementEnd >= 0 ? statementEnd + 1 : closeIndex + 1;
+  }
+  return blocks;
+}
+
+function findMatchingParen(text, openIndex) {
+  let depth = 0;
+  let quote = null;
+  for (let index = openIndex; index < text.length; index += 1) {
+    const char = text[index];
+    const prev = text[index - 1];
+    if ((char === "'" || char === '"' || char === "`") && prev !== "\\") {
+      quote = quote === char ? null : quote || char;
+      continue;
+    }
+    if (quote) continue;
+    if (char === "(") depth += 1;
+    if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
 }
 
 function parseTablePart(part, table, relationships) {
@@ -1442,12 +1667,12 @@ function readSqlType(rest) {
 }
 
 function parseForeignKey(part, childTable) {
-  const match = part.match(/FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+[`"]?([A-Za-z_][\w]*)[`"]?\s*\(([^)]+)\)/i);
+  const match = part.match(/FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+((?:[`"]?[A-Za-z_][\w]*[`"]?\.)?[`"]?[A-Za-z_][\w]*[`"]?)\s*\(([^)]+)\)/i);
   if (!match) return null;
   return {
     childTable,
     childColumn: parseIdentifierList(match[1])[0],
-    parentTable: cleanIdentifier(match[2]),
+    parentTable: parseQualifiedName(match[2]),
     parentColumn: parseIdentifierList(match[3])[0]
   };
 }
@@ -1460,7 +1685,7 @@ function splitTopLevel(text) {
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
     const prev = text[index - 1];
-    if ((char === "'" || char === '"') && prev !== "\\") {
+    if ((char === "'" || char === '"' || char === "`") && prev !== "\\") {
       quote = quote === char ? null : quote || char;
     }
     if (!quote) {
@@ -1489,11 +1714,59 @@ function cleanIdentifier(value) {
   return String(value || "").replace(/[`"]/g, "").trim();
 }
 
+function parseQualifiedName(value) {
+  const parts = String(value || "")
+    .split(".")
+    .map((part) => cleanIdentifier(part))
+    .filter(Boolean);
+  return parts[parts.length - 1] || "";
+}
+
 function hasIndex(table, columnName) {
   const lower = columnName.toLowerCase();
   if (table.primaryKey.some((column) => column.toLowerCase() === lower)) return true;
   if (table.uniques.some((cols) => cols.some((column) => column.toLowerCase() === lower))) return true;
   return table.indexes.some((index) => index.columns.some((column) => column.toLowerCase() === lower));
+}
+
+function buildGeneratedNotes(description, generated, report, settings) {
+  const tags = report?.tables?.length
+    ? `<div class="tag-row">${report.tables.map((table) => `<span class="tag">${escapeHtml(table.name)}</span>`).join("")}</div>`
+    : "";
+  const relationships = report?.relationships?.length
+    ? `<ul>${report.relationships.slice(0, 8).map((rel) => `<li>${escapeHtml(rel.childTable)}.${escapeHtml(rel.childColumn)} -> ${escapeHtml(rel.parentTable)}.${escapeHtml(rel.parentColumn)}</li>`).join("")}</ul>`
+    : `<p>${escapeHtml(settings.targetNF)}-oriented schema generated for the requested domain.</p>`;
+  return [
+    `<h3>Request</h3>`,
+    `<p>${escapeHtml(description)}</p>`,
+    `<h3>Generation</h3>`,
+    `<p>Provider: ${escapeHtml(generated.provider)} | Model: ${escapeHtml(generated.model)} | Dialect: ${escapeHtml(settings.dialect)} | Target: ${escapeHtml(settings.targetNF)}</p>`,
+    report?.tables?.length ? `<h3>Detected Tables</h3>${tags}` : "",
+    `<h3>Relationship Snapshot</h3>`,
+    relationships
+  ].join("");
+}
+
+function shouldRescueGeneration(report) {
+  if (!report) return false;
+  return report.summary.errorCount > 0 || report.score < 100 || report.summary.tableCount < 4;
+}
+
+function buildRescueNotes(description, provider, originalReport, rescuedReport, settings) {
+  const originalSummary = originalReport
+    ? `${originalReport.summary.tableCount} tables, ${originalReport.summary.relationshipCount} foreign keys, score ${originalReport.score}/100`
+    : "no validation summary";
+  const rescuedSummary = rescuedReport
+    ? `${rescuedReport.summary.tableCount} tables, ${rescuedReport.summary.relationshipCount} foreign keys, score ${rescuedReport.score}/100`
+    : "no rescue summary";
+  return [
+    `<h3>Request</h3>`,
+    `<p>${escapeHtml(description)}</p>`,
+    `<h3>Quality Rescue</h3>`,
+    `<p>${escapeHtml(provider)} returned SQL that did not meet the app's validation target, so the built-in schema engine generated a complete ${escapeHtml(settings.targetNF)} ${escapeHtml(settings.dialect)} schema for the same prompt.</p>`,
+    `<ul><li>Initial result: ${escapeHtml(originalSummary)}</li><li>Rescued result: ${escapeHtml(rescuedSummary)}</li></ul>`,
+    rescuedReport?.tables?.length ? `<div class="tag-row">${rescuedReport.tables.map((table) => `<span class="tag">${escapeHtml(table.name)}</span>`).join("")}</div>` : ""
+  ].join("");
 }
 
 function renderGenerationReport(generated, report) {
