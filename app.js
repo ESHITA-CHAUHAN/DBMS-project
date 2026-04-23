@@ -166,6 +166,10 @@ let state = {
 
 const $ = (id) => document.getElementById(id);
 
+function getProviderDisplayName(provider) {
+  return String(provider || "demo").replace(/\s*\+\s*local rescue$/i, "").trim();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadState();
   bindEvents();
@@ -317,7 +321,7 @@ async function handleGenerate() {
       const rescued = buildLocalDesign(description, settings.dialect, settings.targetNF);
       const rescuedReport = analyzeSql(rescued.sql);
       generated = {
-        provider: `${settings.provider} + local rescue`,
+        provider: getProviderDisplayName(settings.provider),
         model: settings.modelName,
         sql: rescued.sql,
         notes: buildRescueNotes(description, settings.provider, report, rescuedReport, settings),
@@ -328,7 +332,7 @@ async function handleGenerate() {
 
     state.currentSql = generated.sql;
     state.currentDescription = description;
-    state.currentProvider = generated.provider;
+    state.currentProvider = getProviderDisplayName(generated.provider);
     state.currentReport = report;
 
     if (!generated.notes) {
@@ -1740,7 +1744,7 @@ function buildGeneratedNotes(description, generated, report, settings) {
     `<h3>Request</h3>`,
     `<p>${escapeHtml(description)}</p>`,
     `<h3>Generation</h3>`,
-    `<p>Provider: ${escapeHtml(generated.provider)} | Model: ${escapeHtml(generated.model)} | Dialect: ${escapeHtml(settings.dialect)} | Target: ${escapeHtml(settings.targetNF)}</p>`,
+    `<p>Provider: ${escapeHtml(getProviderDisplayName(generated.provider))} | Model: ${escapeHtml(generated.model)} | Dialect: ${escapeHtml(settings.dialect)} | Target: ${escapeHtml(settings.targetNF)}</p>`,
     report?.tables?.length ? `<h3>Detected Tables</h3>${tags}` : "",
     `<h3>Relationship Snapshot</h3>`,
     relationships
@@ -1772,7 +1776,7 @@ function buildRescueNotes(description, provider, originalReport, rescuedReport, 
 function renderGenerationReport(generated, report) {
   const sections = [
     `<div class="metric-grid">
-      <div class="metric"><strong>${escapeHtml(generated.provider)}</strong><span>provider</span></div>
+      <div class="metric"><strong>${escapeHtml(getProviderDisplayName(generated.provider))}</strong><span>provider</span></div>
       <div class="metric"><strong>${escapeHtml(String(generated.latencyMs || 0))}</strong><span>latency ms</span></div>
     </div>`,
     generated.notes && generated.notes.includes("<h3>") ? generated.notes : `<h3>AI Notes</h3><p>${escapeHtml(generated.notes || "Generated locally.")}</p>`
@@ -2033,7 +2037,7 @@ function saveCurrentDesign() {
     title,
     description: state.currentDescription,
     sql: state.currentSql,
-    provider: state.currentProvider,
+    provider: getProviderDisplayName(state.currentProvider),
     dialect: state.settings.dialect,
     targetNF: state.settings.targetNF,
     report: state.currentReport,
@@ -2069,7 +2073,7 @@ function renderHistory() {
     return `<article class="history-item">
       <div>
         <div class="history-title">${escapeHtml(entry.title)}</div>
-        <div class="history-meta">${tables} tables | ${score}/100 | ${escapeHtml(entry.provider)} | ${new Date(entry.createdAt).toLocaleString()}</div>
+        <div class="history-meta">${tables} tables | ${score}/100 | ${escapeHtml(getProviderDisplayName(entry.provider))} | ${new Date(entry.createdAt).toLocaleString()}</div>
       </div>
       <div class="history-actions">
         <button class="ghost-button compact" type="button" data-history-action="load" data-id="${entry.id}">Load</button>
@@ -2084,13 +2088,13 @@ function loadHistoryItem(id) {
   if (!entry) return;
   state.currentSql = entry.sql;
   state.currentDescription = entry.description;
-  state.currentProvider = entry.provider;
+  state.currentProvider = getProviderDisplayName(entry.provider);
   state.currentReport = entry.report || analyzeSql(entry.sql);
   $("projectDescription").value = entry.description;
   $("generatedSql").textContent = entry.sql;
   $("sqlEditor").value = entry.sql;
   $("designReport").innerHTML = renderGenerationReport({
-    provider: entry.provider,
+    provider: getProviderDisplayName(entry.provider),
     model: "saved version",
     sql: entry.sql,
     notes: `<h3>Loaded Version</h3><p>${escapeHtml(entry.title)}</p>`,
