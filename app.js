@@ -382,7 +382,7 @@ async function handleGenerate() {
       );
       const sql = extractSql(providerResult?.sql || providerResult?.rawText || "");
       if (!sql) {
-        throw new Error("The model did not return executable CREATE TABLE SQL. Try again or switch to the offline demo engine.");
+        throw new Error("The model did not return executable CREATE TABLE SQL. Try again or switch to the built-in schema engine.");
       }
       generated = {
         provider: settings.provider,
@@ -472,7 +472,7 @@ Requirements:
 }
 
 async function callProvider(provider, key, model, systemPrompt, userPrompt) {
-  if (!key) throw new Error("Add an API key or use the offline demo engine.");
+  if (!key) throw new Error("Add an API key or use the built-in schema engine.");
 
   if (provider === "anthropic") {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -676,7 +676,7 @@ function buildLocalDesign(description, dialect, targetNF) {
     `<ul><li>1NF: all generated columns are scalar and repeating groups are placed in child tables.</li><li>2NF: associative tables use full keys for relationship facts.</li><li>${escapeHtml(targetNF)}: descriptive attributes are separated from transactional facts.</li></ul>`
   ].join("");
   return {
-    provider: "offline demo engine",
+    provider: "built-in schema engine",
     model: "local-rules-v1",
     sql,
     notes,

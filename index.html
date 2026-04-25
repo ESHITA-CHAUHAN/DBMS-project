@@ -45,14 +45,14 @@
       <div class="provider-panel">
         <label for="providerSelect">AI Provider</label>
         <select id="providerSelect">
-          <option value="demo">Offline demo engine</option>
+          <option value="demo">Built-in schema engine</option>
           <option value="anthropic">Anthropic Messages API</option>
           <option value="openai">OpenAI chat API</option>
           <option value="gemini">Google Gemini API</option>
         </select>
 
         <label for="apiKey">API Key</label>
-        <input id="apiKey" type="password" autocomplete="off" placeholder="Stored locally only">
+        <input id="apiKey" type="password" autocomplete="off" placeholder="Optional if configured on server">
 
         <label for="modelName">Model</label>
         <input id="modelName" type="text" autocomplete="off" placeholder="Use provider default">
@@ -64,7 +64,7 @@
       </div>
 
       <div class="sidebar-note">
-        <strong>Live-ready:</strong> static frontend with optional cloud backend and managed database support.
+        <strong>Live-ready:</strong> cloud backend, managed database, and optional static client support.
       </div>
     </aside>
 

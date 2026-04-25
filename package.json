@@ -1,7 +1,7 @@
 {
   "name": "dbms-project",
   "version": "1.0.0",
-  "description": "AI-assisted database schema-design assistant for a DBMS project. The app helps students move from a plain-English project idea to normalized SQL, then refine and validate that SQL using local browser analysis and optional LLM APIs.",
+  "description": "Full-stack AI-assisted database schema design studio with a Node backend, managed Postgres deployment support, and an optional static client.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

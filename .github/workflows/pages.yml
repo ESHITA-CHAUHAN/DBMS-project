@@ -1,4 +1,4 @@
-name: Deploy static site to GitHub Pages
+name: Deploy static client to GitHub Pages
 
 on:
   push:
@@ -25,13 +25,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare static client artifact
+        run: |
+          mkdir -p _site
+          cp index.html _site/index.html
+          cp style.css _site/style.css
+          cp app.js _site/app.js
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: ./_site
 
       - name: Deploy to GitHub Pages
         id: deployment

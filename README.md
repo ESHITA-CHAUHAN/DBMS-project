@@ -1,20 +1,50 @@
 # SchemaAI DBMS Studio
 
-SchemaAI DBMS Studio is an AI-assisted database schema design app for DBMS coursework. It now supports two runtime modes:
+SchemaAI DBMS Studio is a full-stack AI-assisted database schema design project for DBMS coursework. The project now has one primary shape:
 
-1. `GitHub Pages` static frontend mode for quick demos
-2. `Render + Postgres` full-stack cloud mode for a real hosted backend and database
+- a Node.js + Express backend
+- a persistent database layer
+- a browser client for schema generation, validation, normalization, and history
+- Render deployment support for a real public cloud deployment
+
+The static GitHub Pages site is still available, but only as an optional frontend client. The main project is the cloud-backed application.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ESHITA-CHAUHAN/DBMS-project)
 
-## What the full-stack version includes
+## Main architecture
 
-- frontend UI for schema generation and editing
-- Express backend API
-- managed database support with PostgreSQL in production
-- SQLite fallback for local development
-- saved projects, schema versions, validation runs, findings, and revision history
-- optional server-side Anthropic, OpenAI, and Gemini calls
+### Cloud-first app
+
+- Browser UI: `index.html`, `style.css`, `app.js`
+- Backend API: `server.js`
+- Database adapter selection: `server/db.js`
+- Production database: PostgreSQL
+- Local fallback database: SQLite
+- Deployment target: Render web service + Render Postgres
+
+### Optional static client
+
+GitHub Pages only publishes the static frontend files. It does not run the backend.
+
+Public static client URL:
+
+[https://eshita-chauhan.github.io/DBMS-project/](https://eshita-chauhan.github.io/DBMS-project/)
+
+Once the Render backend is live, the static client can use it with:
+
+```text
+https://eshita-chauhan.github.io/DBMS-project/?apiBase=https://your-render-service.onrender.com
+```
+
+## What the project does
+
+1. Accepts a plain-English system description
+2. Generates normalized SQL schemas
+3. Validates the SQL for keys, references, and structure
+4. Lets the user refine SQL manually in a workbench
+5. Saves projects, versions, findings, and revision history
+6. Shows a meta-schema view for DBMS lifecycle tracking
+7. Includes a normalization lab for functional dependency analysis
 
 ## Project structure
 
@@ -25,59 +55,25 @@ SchemaAI DBMS Studio is an AI-assisted database schema design app for DBMS cours
 |-- app.js
 |-- server.js
 |-- render.yaml
+|-- package.json
+|-- .env.example
 |-- server/
 |   |-- db.js
-|   |-- db/
-|   |   |-- helpers.js
-|   |   |-- postgres-store.js
-|   |   `-- sqlite-store.js
-|   `-- schema-engine.js
+|   |-- schema-engine.js
+|   `-- db/
+|       |-- helpers.js
+|       |-- postgres-store.js
+|       `-- sqlite-store.js
 |-- sql/
 |   `-- core_meta_schema.sql
-|-- .env.example
-|-- package.json
 `-- .github/
     `-- workflows/
         `-- pages.yml
 ```
 
-## Runtime modes
-
-### 1. GitHub Pages static frontend
-
-Public frontend URL:
-
-[https://eshita-chauhan.github.io/DBMS-project/](https://eshita-chauhan.github.io/DBMS-project/)
-
-This mode is still useful for:
-
-- offline demo generation
-- local browser validation
-- normalization lab
-- static sharing
-
-It does not run the Node backend.
-
-After the Render backend is live, you can optionally point the existing GitHub Pages frontend at it by opening the Pages URL with:
-
-```text
-?apiBase=https://your-render-service.onrender.com
-```
-
-### 2. Render cloud deployment
-
-The production deployment is designed for:
-
-- one Render web service
-- one Render Postgres database
-- the frontend served by the same Node service
-- backend APIs and persistence at the same public URL
-
-The Render setup is defined in `render.yaml`.
-
 ## Backend API
 
-The server exposes:
+The backend exposes:
 
 - `GET /api/health`
 - `POST /api/generate`
@@ -93,37 +89,29 @@ The server exposes:
 
 ### Production
 
-If `DATABASE_URL` is present, the app uses PostgreSQL with automatic startup migrations.
+When `DATABASE_URL` is present, the app uses PostgreSQL and runs startup migrations automatically.
 
 ### Local development
 
-If `DATABASE_URL` is missing, the app falls back to SQLite at:
+When `DATABASE_URL` is missing, the app falls back to SQLite at:
 
 ```text
 data/schemaai.db
 ```
 
-Both database modes persist:
+Both modes persist:
 
 - projects
 - generation events
 - schema versions
 - schema tables
 - schema columns
-- relationships
+- schema relationships
 - validation runs
 - validation findings
 - revision events
 
 ## Environment variables
-
-Copy `.env.example` to `.env` for local development:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Available settings:
 
 ```env
 PORT=3000
@@ -139,84 +127,74 @@ Notes:
 
 - `DATABASE_URL` enables PostgreSQL mode
 - `DATABASE_SSL=true` is recommended for managed cloud databases
-- `CORS_ORIGIN` is optional and is only needed if you want a separate frontend origin to call the backend
+- `CORS_ORIGIN` is used when a separate frontend origin calls the backend
+
+## Deploying on Render
+
+This repo is ready for Render Blueprints using `render.yaml`.
+
+Render creates:
+
+- one Node web service
+- one managed Postgres database
+- automatic wiring of `DATABASE_URL` into the web service
+
+### Render settings expected by this repo
+
+- runtime: `Node`
+- build command: `npm install`
+- start command: `npm start`
+- health check path: `/api/health`
+- `NODE_ENV=production`
+- `DATABASE_SSL=true`
+- `CORS_ORIGIN=https://eshita-chauhan.github.io`
+
+Optional API keys:
+
+- `GEMINI_API_KEY`
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
 
 ## Local development
 
-Install dependencies:
+Install:
 
 ```powershell
 npm install
 ```
 
-Run the app:
+Create environment file:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Run:
 
 ```powershell
 npm start
 ```
 
-Then open:
+Open:
 
 [http://localhost:3000](http://localhost:3000)
 
-## Deploying the real cloud version on Render
-
-This repo is ready for Render Blueprints.
-
-### Fast path
-
-1. Push the latest code to GitHub.
-2. Click the **Deploy to Render** button above.
-3. Approve the blueprint.
-4. Enter your `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and/or `GEMINI_API_KEY` when Render prompts for them.
-5. Wait for Render to create:
-   - one web service
-   - one Postgres database
-6. Open the generated `https://...onrender.com` URL.
-
-### What Render creates
-
-- a public Node web service for the app
-- a managed Postgres database
-- an internal `DATABASE_URL` wired automatically from the database to the app service
-
 ## Frontend and backend flow
 
-1. User enters a project description.
-2. Frontend calls `/api/generate`.
-3. Backend generates SQL using:
-   - the offline schema engine, or
+1. User enters a project description
+2. The browser client calls `/api/generate`
+3. The backend generates SQL using:
+   - the built-in schema engine, or
    - Anthropic, OpenAI, or Gemini
-4. Backend validates SQL.
-5. Frontend shows SQL, findings, and inspector details.
-6. User saves the design.
-7. Frontend calls `/api/projects`.
-8. Backend stores the project, version, findings, and relationships in the database.
-9. History and Meta Schema views reload from backend data.
+4. The backend validates the SQL
+5. The browser shows SQL, score, findings, and schema inspection
+6. When the user saves, the browser calls `/api/projects`
+7. The backend stores the project and schema metadata in the database
+8. History and Meta Schema views reload from persisted backend data
 
-## Gemini reliability
+## Important separation
 
-The backend uses a stricter Gemini flow than the original static frontend:
+- Render deployment = real backend + real database
+- GitHub Pages = optional static client only
 
-- SQL-first prompting
-- structured output attempt
-- SQL extraction and cleanup
-- local validation
-- rescue fallback to the built-in schema engine if the provider output is weak
-
-## DBMS concepts covered
-
-- entity discovery
-- schema design
-- primary keys
-- foreign keys
-- unique constraints
-- indexes
-- many-to-many bridge tables
-- normalization to 3NF / BCNF
-- validation findings
-- metadata-driven schema lifecycle
-
-## Important deployment note
-
-GitHub Pages can only host the static frontend. A true hosted backend requires a platform that runs Node and provides a real database, which is why the full production path in this repo targets Render plus Postgres.
+That separation is intentional now. The Pages workflow publishes only the frontend assets, while the backend lives in the Node deployment.
