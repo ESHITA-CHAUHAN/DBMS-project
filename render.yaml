@@ -19,10 +19,6 @@ services:
         value: "true"
       - key: CORS_ORIGIN
         value: https://eshita-chauhan.github.io
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
       - key: GEMINI_API_KEY
         sync: false
 

@@ -9,7 +9,31 @@ SchemaAI DBMS Studio is a full-stack AI-assisted database schema design project 
 
 The static GitHub Pages site is still available, but only as an optional frontend client. The main project is the cloud-backed application.
 
+## Live Links
+
+- GitHub Pages client: [https://eshita-chauhan.github.io/DBMS-project/](https://eshita-chauhan.github.io/DBMS-project/)
+- Render backend app: [https://schemaai-studio-3krp.onrender.com](https://schemaai-studio-3krp.onrender.com)
+- Render health check: [https://schemaai-studio-3krp.onrender.com/api/health](https://schemaai-studio-3krp.onrender.com/api/health)
+
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ESHITA-CHAUHAN/DBMS-project)
+
+## About Architecture
+
+- Frontend: a browser UI built with `index.html`, `style.css`, and `app.js`
+- Backend: an Express server in `server.js` exposes generation, validation, and save APIs
+- Database: Render Postgres is the primary live store, with SQLite only as a local development fallback
+- AI provider layer: the app now keeps a built-in schema engine plus Gemini API generation
+- History and versioning: every saved design can persist as projects, schema versions, validation runs, findings, and revision events
+- Deployment: GitHub Pages can act as a client, while Render hosts the real backend and cloud database
+
+```mermaid
+flowchart LR
+  A["Browser Client"] --> B["Express API"]
+  B --> C["Built-in Schema Engine"]
+  B --> D["Gemini API"]
+  B --> E["Render Postgres"]
+  E --> F["History and Versioning"]
+```
 
 ## Main architecture
 
@@ -118,8 +142,6 @@ PORT=3000
 DATABASE_URL=
 DATABASE_SSL=
 CORS_ORIGIN=
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
 GEMINI_API_KEY=
 ```
 
@@ -152,8 +174,6 @@ Render creates:
 Optional API keys:
 
 - `GEMINI_API_KEY`
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
 
 ## Local development
 
@@ -185,7 +205,7 @@ Open:
 2. The browser client calls `/api/generate`
 3. The backend generates SQL using:
    - the built-in schema engine, or
-   - Anthropic, OpenAI, or Gemini
+   - Gemini
 4. The backend validates the SQL
 5. The browser shows SQL, score, findings, and schema inspection
 6. When the user saves, the browser calls `/api/projects`

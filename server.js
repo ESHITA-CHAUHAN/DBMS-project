@@ -54,8 +54,6 @@ function asyncRoute(handler) {
 
 function resolveApiKey(provider, clientKey) {
   if (clientKey) return clientKey;
-  if (provider === "anthropic") return process.env.ANTHROPIC_API_KEY || "";
-  if (provider === "openai") return process.env.OPENAI_API_KEY || "";
   if (provider === "gemini") return process.env.GEMINI_API_KEY || "";
   return "";
 }
@@ -117,6 +115,10 @@ app.post("/api/generate", asyncRoute(async (req, res) => {
 
   if (!String(description || "").trim()) {
     res.status(400).json({ error: "Description is required." });
+    return;
+  }
+  if (!["demo", "gemini"].includes(String(provider))) {
+    res.status(400).json({ error: "Unsupported provider. Use the built-in schema engine or Gemini." });
     return;
   }
 

@@ -19,6 +19,12 @@
         </div>
       </div>
 
+      <div class="status-card" aria-live="polite">
+        <div class="status-card-label">Backend Status</div>
+        <div class="status-pill" id="backendStatusBadge">Local fallback</div>
+        <div class="status-caption" id="backendStatusHint">Using browser storage until a backend connection is available.</div>
+      </div>
+
       <nav class="nav-list" aria-label="Primary">
         <button class="nav-button active" type="button" data-view="design">
           <span class="nav-symbol" aria-hidden="true">+</span>
@@ -46,8 +52,6 @@
         <label for="providerSelect">AI Provider</label>
         <select id="providerSelect">
           <option value="demo">Built-in schema engine</option>
-          <option value="anthropic">Anthropic Messages API</option>
-          <option value="openai">OpenAI chat API</option>
           <option value="gemini">Google Gemini API</option>
         </select>
 

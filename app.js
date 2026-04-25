@@ -5,10 +5,10 @@ const STORAGE_KEYS = {
 
 const PROVIDER_DEFAULTS = {
   demo: "local-rules-v1",
-  anthropic: "claude-sonnet-4-20250514",
-  openai: "gpt-4o-mini",
   gemini: "gemini-2.5-flash"
 };
+
+const SUPPORTED_PROVIDERS = new Set(["demo", "gemini"]);
 
 const RESERVED_WORDS = new Set([
   "user", "order", "group", "rank", "select", "table", "index", "key",
@@ -160,6 +160,7 @@ let state = {
   history: [],
   metaRows: null,
   backendAvailable: false,
+  backendInfo: null,
   apiBaseUrl: "",
   currentProjectId: null,
   currentVersionId: null,
@@ -200,6 +201,10 @@ function loadState() {
     dialect: "mysql",
     targetNF: "3NF"
   });
+  if (!SUPPORTED_PROVIDERS.has(state.settings.provider)) {
+    state.settings.provider = state.settings.apiKey ? "gemini" : "demo";
+    state.settings.modelName = PROVIDER_DEFAULTS[state.settings.provider];
+  }
   if (state.settings.provider === "gemini" && state.settings.modelName === "gemini-1.5-flash") {
     state.settings.modelName = PROVIDER_DEFAULTS.gemini;
   }
@@ -279,11 +284,13 @@ function saveSettings() {
 
 async function initializeBackend() {
   try {
-    await apiRequest("/api/health");
+    state.backendInfo = await apiRequest("/api/health");
     state.backendAvailable = true;
     await refreshBackendData();
   } catch {
     state.backendAvailable = false;
+    state.backendInfo = null;
+    renderBackendStatus();
   }
 }
 
@@ -296,6 +303,7 @@ async function refreshBackendData() {
   state.metaRows = metaRows;
   renderHistory();
   renderMetaRows();
+  renderBackendStatus();
 }
 
 async function apiRequest(url, options = {}) {
@@ -338,6 +346,7 @@ function switchView(view) {
 }
 
 async function handleGenerate() {
+  await refreshBackendConnectionIfNeeded();
   const description = $("projectDescription").value.trim();
   if (!description) {
     showToast("Add a project description first.");
@@ -473,49 +482,6 @@ Requirements:
 
 async function callProvider(provider, key, model, systemPrompt, userPrompt) {
   if (!key) throw new Error("Add an API key or use the built-in schema engine.");
-
-  if (provider === "anthropic") {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 3000,
-        temperature: 0.2,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }]
-      })
-    });
-    const data = await parseProviderResponse(response);
-    const text = (data.content || []).map((part) => part.text || "").join("");
-    return { rawText: text, sql: extractSql(text) };
-  }
-
-  if (provider === "openai") {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${key}`
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ]
-      })
-    });
-    const data = await parseProviderResponse(response);
-    const text = data.choices?.[0]?.message?.content || "";
-    return { rawText: text, sql: extractSql(text) };
-  }
 
   if (provider === "gemini") {
     return callGeminiProvider(key, model, systemPrompt, userPrompt);
@@ -2117,6 +2083,8 @@ async function saveCurrentDesign(changeSummary) {
     return;
   }
 
+  await refreshBackendConnectionIfNeeded();
+
   if (state.backendAvailable) {
     const wasExisting = Boolean(state.currentProjectId);
     const saved = await apiRequest("/api/projects", {
@@ -2139,7 +2107,7 @@ async function saveCurrentDesign(changeSummary) {
     state.currentProjectId = saved.id;
     state.currentVersionId = saved.versionId;
     await refreshBackendData();
-    showToast(wasExisting ? "Revision saved to database." : "Design saved to database.");
+    showToast(wasExisting ? "Revision saved to cloud database." : "Design saved to cloud database.");
     return;
   }
 
@@ -2160,7 +2128,8 @@ async function saveCurrentDesign(changeSummary) {
   localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(state.history));
   renderHistory();
   renderMetaRows();
-  showToast("Design saved to local storage.");
+  renderBackendStatus();
+  showToast("Design saved to browser storage.");
 }
 
 async function saveRevision() {
@@ -2234,14 +2203,34 @@ async function clearHistory() {
     state.currentVersionId = null;
     renderHistory();
     renderMetaRows();
-    showToast("Database history cleared.");
+    renderBackendStatus();
+    showToast("Cloud database history cleared.");
     return;
   }
   state.history = [];
   localStorage.removeItem(STORAGE_KEYS.history);
   renderHistory();
   renderMetaRows();
-  showToast("History cleared.");
+  renderBackendStatus();
+  showToast("Browser storage history cleared.");
+}
+
+async function refreshBackendConnectionIfNeeded() {
+  if (!state.apiBaseUrl || state.backendAvailable) return;
+  await initializeBackend();
+}
+
+function renderBackendStatus() {
+  const badge = $("backendStatusBadge");
+  const hint = $("backendStatusHint");
+  if (!badge || !hint) return;
+
+  const usingCloudDatabase = state.backendAvailable && state.backendInfo?.database === "postgres";
+  badge.textContent = usingCloudDatabase ? "Cloud DB connected" : "Local fallback";
+  badge.className = usingCloudDatabase ? "status-pill connected" : "status-pill fallback";
+  hint.textContent = usingCloudDatabase
+    ? "Saving schemas, versions, and findings into the live Render Postgres database."
+    : "Using the built-in engine and browser storage until the backend is reachable.";
 }
 
 function renderMetaRows() {
