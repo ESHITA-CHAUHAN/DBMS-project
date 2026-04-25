@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="AI-assisted DB schema-design assistant for DBMS coursework.">
+  <meta name="schemaai-api-base" content="">
   <title>SchemaAI DBMS Studio</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -63,7 +64,7 @@
       </div>
 
       <div class="sidebar-note">
-        <strong>Live-ready:</strong> static files, browser storage, and GitHub Pages workflow.
+        <strong>Live-ready:</strong> static frontend with optional cloud backend and managed database support.
       </div>
     </aside>
 
@@ -250,7 +251,7 @@ StudentID, CourseID, Semester -> Grade</textarea>
           </section>
           <section class="output-panel" aria-labelledby="metaRowsTitle">
             <div class="panel-title-row">
-              <h2 id="metaRowsTitle">Browser Rows</h2>
+              <h2 id="metaRowsTitle">Stored Rows</h2>
               <button class="ghost-button compact" type="button" id="exportHistoryButton">JSON</button>
             </div>
             <div id="metaRowsOutput" class="report-output"></div>
@@ -261,7 +262,7 @@ StudentID, CourseID, Semester -> Grade</textarea>
       <section id="view-history" class="view" aria-labelledby="historyTitle">
         <div class="view-header">
           <div>
-            <p class="eyebrow">Stored locally as schema_meta rows</p>
+            <p class="eyebrow">Saved design versions and validation history</p>
             <h1 id="historyTitle">History</h1>
           </div>
           <button class="danger-button" type="button" id="clearHistoryButton">

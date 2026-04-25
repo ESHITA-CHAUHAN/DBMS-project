@@ -158,10 +158,20 @@ CREATE TABLE revision_events (
 let state = {
   settings: {},
   history: [],
+  metaRows: null,
+  backendAvailable: false,
+  apiBaseUrl: "",
+  currentProjectId: null,
+  currentVersionId: null,
   currentSql: "",
   currentDescription: "",
   currentReport: null,
-  currentProvider: "demo"
+  currentProvider: "demo",
+  currentModel: "",
+  currentNotes: "",
+  currentRawText: "",
+  currentLatencyMs: 0,
+  currentRescued: false
 };
 
 const $ = (id) => document.getElementById(id);
@@ -170,13 +180,15 @@ function getProviderDisplayName(provider) {
   return String(provider || "demo").replace(/\s*\+\s*local rescue$/i, "").trim();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   loadState();
+  state.apiBaseUrl = getApiBaseUrl();
   bindEvents();
   applySettings();
   $("metaSchemaOutput").textContent = META_SCHEMA_SQL;
   renderHistory();
   renderMetaRows();
+  await initializeBackend();
 });
 
 function loadState() {
@@ -265,6 +277,55 @@ function saveSettings() {
   localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
 }
 
+async function initializeBackend() {
+  try {
+    await apiRequest("/api/health");
+    state.backendAvailable = true;
+    await refreshBackendData();
+  } catch {
+    state.backendAvailable = false;
+  }
+}
+
+async function refreshBackendData() {
+  const [historyResponse, metaRows] = await Promise.all([
+    apiRequest("/api/projects"),
+    apiRequest("/api/meta/rows")
+  ]);
+  state.history = historyResponse.items || [];
+  state.metaRows = metaRows;
+  renderHistory();
+  renderMetaRows();
+}
+
+async function apiRequest(url, options = {}) {
+  const response = await fetch(resolveApiUrl(url), {
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
+    ...options
+  });
+  const text = await response.text();
+  const data = text ? safeJsonParse(text) || { raw: text } : {};
+  if (!response.ok) {
+    throw new Error(data.error || data.raw || `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function getApiBaseUrl() {
+  const query = new URLSearchParams(window.location.search).get("apiBase");
+  const meta = document.querySelector('meta[name="schemaai-api-base"]')?.getAttribute("content");
+  const globalValue = typeof window.SCHEMAAI_API_BASE_URL === "string" ? window.SCHEMAAI_API_BASE_URL : "";
+  return String(query || meta || globalValue || "").trim().replace(/\/$/, "");
+}
+
+function resolveApiUrl(url) {
+  if (!state.apiBaseUrl || /^https?:\/\//i.test(url)) return url;
+  return new URL(url, `${state.apiBaseUrl}/`).toString();
+}
+
 function switchView(view) {
   document.querySelectorAll(".nav-button").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
@@ -292,8 +353,24 @@ async function handleGenerate() {
     let generated;
     const started = performance.now();
     let report;
+    state.currentRescued = false;
 
-    if (settings.provider === "demo") {
+    if (state.backendAvailable) {
+      const response = await apiRequest("/api/generate", {
+        method: "POST",
+        body: JSON.stringify({
+          description,
+          provider: settings.provider,
+          modelName: settings.modelName,
+          apiKey: settings.apiKey,
+          dialect: settings.dialect,
+          targetNF: settings.targetNF
+        })
+      });
+      generated = response.generated;
+      report = response.report;
+      state.currentRescued = Boolean(response.rescued);
+    } else if (settings.provider === "demo") {
       generated = buildLocalDesign(description, settings.dialect, settings.targetNF);
     } else {
       const providerResult = await callProvider(
@@ -316,8 +393,8 @@ async function handleGenerate() {
       };
     }
 
-    report = settings.useLocalReview ? analyzeSql(generated.sql) : null;
-    if (settings.provider !== "demo" && settings.useLocalReview && shouldRescueGeneration(report)) {
+    report = report || (settings.useLocalReview ? analyzeSql(generated.sql) : null);
+    if (!state.backendAvailable && settings.provider !== "demo" && settings.useLocalReview && shouldRescueGeneration(report)) {
       const rescued = buildLocalDesign(description, settings.dialect, settings.targetNF);
       const rescuedReport = analyzeSql(rescued.sql);
       generated = {
@@ -328,16 +405,24 @@ async function handleGenerate() {
         latencyMs: Math.round(performance.now() - started)
       };
       report = rescuedReport;
+      state.currentRescued = true;
     }
 
+    state.currentProjectId = null;
+    state.currentVersionId = null;
     state.currentSql = generated.sql;
     state.currentDescription = description;
     state.currentProvider = getProviderDisplayName(generated.provider);
+    state.currentModel = generated.model || settings.modelName || "";
     state.currentReport = report;
+    state.currentNotes = generated.notes || "";
+    state.currentRawText = generated.rawText || "";
+    state.currentLatencyMs = generated.latencyMs || Math.round(performance.now() - started);
 
     if (!generated.notes) {
       generated.notes = buildGeneratedNotes(description, generated, report, settings);
     }
+    state.currentNotes = generated.notes || state.currentNotes;
 
     $("generatedSql").textContent = generated.sql;
     $("sqlEditor").value = generated.sql;
@@ -2026,11 +2111,38 @@ function inferType(attr) {
   return "VARCHAR(120)";
 }
 
-function saveCurrentDesign() {
+async function saveCurrentDesign(changeSummary) {
   if (!state.currentSql) {
     showToast("Generate a schema before saving.");
     return;
   }
+
+  if (state.backendAvailable) {
+    const wasExisting = Boolean(state.currentProjectId);
+    const saved = await apiRequest("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: state.currentProjectId,
+        description: state.currentDescription,
+        sql: state.currentSql,
+        provider: state.currentProvider,
+        modelName: state.currentModel,
+        dialect: state.settings.dialect,
+        targetNF: state.settings.targetNF,
+        notes: state.currentNotes,
+        rawText: state.currentRawText,
+        latencyMs: state.currentLatencyMs,
+        rescued: state.currentRescued,
+        changeSummary: changeSummary || (wasExisting ? "Saved schema revision" : "Initial saved schema")
+      })
+    });
+    state.currentProjectId = saved.id;
+    state.currentVersionId = saved.versionId;
+    await refreshBackendData();
+    showToast(wasExisting ? "Revision saved to database." : "Design saved to database.");
+    return;
+  }
+
   const title = titleFromDescription(state.currentDescription);
   const entry = {
     id: Date.now(),
@@ -2048,10 +2160,10 @@ function saveCurrentDesign() {
   localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(state.history));
   renderHistory();
   renderMetaRows();
-  showToast("Design saved to browser meta store.");
+  showToast("Design saved to local storage.");
 }
 
-function saveRevision() {
+async function saveRevision() {
   const sql = $("sqlEditor").value.trim();
   if (!sql) {
     showToast("Nothing to save.");
@@ -2059,7 +2171,7 @@ function saveRevision() {
   }
   state.currentSql = sql;
   state.currentReport = analyzeSql(sql);
-  saveCurrentDesign();
+  await saveCurrentDesign("Saved workbench revision");
 }
 
 function renderHistory() {
@@ -2086,10 +2198,15 @@ function renderHistory() {
 function loadHistoryItem(id) {
   const entry = state.history.find((item) => item.id === id);
   if (!entry) return;
+  state.currentProjectId = entry.id;
+  state.currentVersionId = entry.versionId || null;
   state.currentSql = entry.sql;
   state.currentDescription = entry.description;
   state.currentProvider = getProviderDisplayName(entry.provider);
+  state.currentModel = entry.model || "";
   state.currentReport = entry.report || analyzeSql(entry.sql);
+  state.currentNotes = entry.notes || "";
+  state.currentRawText = "";
   $("projectDescription").value = entry.description;
   $("generatedSql").textContent = entry.sql;
   $("sqlEditor").value = entry.sql;
@@ -2107,8 +2224,19 @@ function loadHistoryItem(id) {
   showToast("Saved schema loaded.");
 }
 
-function clearHistory() {
-  if (!confirm("Clear saved schemas from this browser?")) return;
+async function clearHistory() {
+  if (!confirm(state.backendAvailable ? "Clear all saved schemas from the database?" : "Clear saved schemas from local storage?")) return;
+  if (state.backendAvailable) {
+    await apiRequest("/api/projects", { method: "DELETE" });
+    state.history = [];
+    state.metaRows = null;
+    state.currentProjectId = null;
+    state.currentVersionId = null;
+    renderHistory();
+    renderMetaRows();
+    showToast("Database history cleared.");
+    return;
+  }
   state.history = [];
   localStorage.removeItem(STORAGE_KEYS.history);
   renderHistory();
@@ -2117,8 +2245,30 @@ function clearHistory() {
 }
 
 function renderMetaRows() {
+  if (state.backendAvailable) {
+    if (!state.metaRows || !state.metaRows.projects?.length) {
+      $("metaRowsOutput").innerHTML = `<div class="empty-state">No database rows yet. Save a design to populate the backend tables.</div>`;
+      return;
+    }
+    $("metaRowsOutput").innerHTML = `
+      <h3>Database Stats</h3>
+      <ul>
+        <li>projects: ${state.metaRows.stats?.projects || 0}</li>
+        <li>schema_versions: ${state.metaRows.stats?.versions || 0}</li>
+        <li>validation_runs: ${state.metaRows.stats?.validations || 0}</li>
+      </ul>
+      <h3>projects</h3>
+      <ul>${(state.metaRows.projects || []).map((row) => `<li>${row.id} | ${escapeHtml(row.title)} | ${escapeHtml(row.targetNF)} | ${escapeHtml(row.dialect)} | ${new Date(row.createdAt).toLocaleString()}</li>`).join("")}</ul>
+      <h3>schema_versions</h3>
+      <ul>${(state.metaRows.versions || []).map((row) => `<li>${row.id} | project ${row.projectId} | v${row.versionNo} | score ${row.score ?? "n/a"}</li>`).join("")}</ul>
+      <h3>validation_runs</h3>
+      <ul>${(state.metaRows.validations || []).map((row) => `<li>${row.id} | schema_version ${row.schemaVersionId} | ${row.status} | score ${row.score}</li>`).join("")}</ul>
+    `;
+    return;
+  }
+
   if (!state.history.length) {
-    $("metaRowsOutput").innerHTML = `<div class="empty-state">No browser rows yet. Saved designs appear as design_projects and schema_versions here.</div>`;
+    $("metaRowsOutput").innerHTML = `<div class="empty-state">No saved rows yet. Saved designs appear as design_projects and schema_versions here.</div>`;
     return;
   }
   $("metaRowsOutput").innerHTML = `
